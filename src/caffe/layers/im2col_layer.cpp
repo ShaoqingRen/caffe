@@ -25,6 +25,10 @@ void Im2colLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       && conv_param.has_stride_w())
       || (!conv_param.has_stride_h() && !conv_param.has_stride_w()))
       << "Stride is stride OR stride_h and stride_w are required.";
+  CHECK((!conv_param.has_filter_stride() && conv_param.has_filter_stride_h()
+      && conv_param.has_filter_stride_w())
+      || (!conv_param.has_filter_stride_h() && !conv_param.has_filter_stride_w()))
+      << "filter stride is filter_stride OR filter_stride_h and filter_stride_w are required.";
   if (conv_param.has_kernel_size()) {
     kernel_h_ = kernel_w_ = conv_param.kernel_size();
   } else {
@@ -45,6 +49,12 @@ void Im2colLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     stride_h_ = conv_param.stride_h();
     stride_w_ = conv_param.stride_w();
   }
+  if (!conv_param.has_filter_stride_h()) {
+    filter_stride_h_ = filter_stride_w_ = conv_param.filter_stride();
+  } else {
+    filter_stride_h_ = conv_param.filter_stride_h();
+    filter_stride_w_ = conv_param.filter_stride_w();
+  }
 }
 
 template <typename Dtype>
@@ -55,10 +65,12 @@ void Im2colLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
   channels_ = bottom[0]->channels();
   height_ = bottom[0]->height();
   width_ = bottom[0]->width();
+  const int kernel_h_eff = kernel_h_ + (kernel_h_ - 1) * (filter_stride_h_ - 1);
+  const int kernel_w_eff = kernel_w_ + (kernel_w_ - 1) * (filter_stride_w_ - 1);
   top[0]->Reshape(
       bottom[0]->num(), channels_ * kernel_h_ * kernel_w_,
-      (height_ + 2 * pad_h_ - kernel_h_) / stride_h_ + 1,
-      (width_ + 2 * pad_w_ - kernel_w_) / stride_w_ + 1);
+      (height_ + 2 * pad_h_ - kernel_h_eff) / stride_h_ + 1,
+      (width_ + 2 * pad_w_ - kernel_w_eff) / stride_w_ + 1);
 }
 
 template <typename Dtype>
@@ -68,8 +80,8 @@ void Im2colLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
   Dtype* top_data = top[0]->mutable_cpu_data();
   for (int n = 0; n < bottom[0]->num(); ++n) {
     im2col_cpu(bottom_data + bottom[0]->offset(n), channels_, height_,
-        width_, kernel_h_, kernel_w_, pad_h_, pad_w_,
-        stride_h_, stride_w_, top_data + top[0]->offset(n));
+        width_, kernel_h_, kernel_w_, pad_h_, pad_w_, stride_h_, stride_w_,
+        filter_stride_h_, filter_stride_w_, top_data + top[0]->offset(n));
   }
 }
 
@@ -80,8 +92,8 @@ void Im2colLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
   Dtype* bottom_diff = bottom[0]->mutable_cpu_diff();
   for (int n = 0; n < top[0]->num(); ++n) {
     col2im_cpu(top_diff + top[0]->offset(n), channels_, height_, width_,
-        kernel_h_, kernel_w_, pad_h_, pad_w_,
-        stride_h_, stride_w_, bottom_diff + bottom[0]->offset(n));
+        kernel_h_, kernel_w_, pad_h_, pad_w_, stride_h_, stride_w_,
+        filter_stride_h_, filter_stride_w_, bottom_diff + bottom[0]->offset(n));
   }
 }
 

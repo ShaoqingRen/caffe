@@ -8,6 +8,9 @@
 
 namespace caffe {
 
+//template <typename Dtype>
+//Blob<Dtype> BaseConvolutionLayer<Dtype>::col_buffer_;
+
 template <typename Dtype>
 void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top) {
@@ -29,6 +32,10 @@ void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       && conv_param.has_stride_w())
       || (!conv_param.has_stride_h() && !conv_param.has_stride_w()))
       << "Stride is stride OR stride_h and stride_w are required.";
+  CHECK((!conv_param.has_filter_stride() && conv_param.has_filter_stride_h()
+      && conv_param.has_filter_stride_w())
+      || (!conv_param.has_filter_stride_h() && !conv_param.has_filter_stride_w()))
+      << "filter stride is filter_stride OR filter_stride_h and filter_stride_w are required.";
   if (conv_param.has_kernel_size()) {
     kernel_h_ = kernel_w_ = conv_param.kernel_size();
   } else {
@@ -49,10 +56,21 @@ void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     stride_h_ = conv_param.stride_h();
     stride_w_ = conv_param.stride_w();
   }
+  if (!conv_param.has_filter_stride_h()) {
+    filter_stride_h_ = filter_stride_w_ = conv_param.filter_stride();
+  } else {
+    filter_stride_h_ = conv_param.filter_stride_h();
+    filter_stride_w_ = conv_param.filter_stride_w();
+  }
+  kernel_w_eff_ = kernel_w_ + (kernel_w_ - 1) * (filter_stride_w_ - 1);
+  kernel_h_eff_ = kernel_h_ + (kernel_h_ - 1) * (filter_stride_h_ - 1);
   // Special case: im2col is the identity for 1x1 convolution with stride 1
-  // and no padding, so flag for skipping the buffer and transformation.
+  // and filter_stride 1 and no padding, so flag for skipping the buffer and
+  // transformation.
   is_1x1_ = kernel_w_ == 1 && kernel_h_ == 1
-      && stride_h_ == 1 && stride_w_ == 1 && pad_h_ == 0 && pad_w_ == 0;
+      && stride_h_ == 1 && stride_w_ == 1
+      && filter_stride_h_ == 1 && filter_stride_w_ == 1
+      && pad_h_ == 0 && pad_w_ == 0;
   // Configure output channels and groups.
   channels_ = bottom[0]->channels();
   num_output_ = this->layer_param_.convolution_param().num_output();
@@ -226,7 +244,7 @@ void BaseConvolutionLayer<Dtype>::backward_cpu_bias(Dtype* bias,
 
 template <typename Dtype>
 void BaseConvolutionLayer<Dtype>::forward_gpu_gemm(const Dtype* input,
-    const Dtype* weights, Dtype* output, bool skip_im2col/* = false*/) {
+    const Dtype* weights, Dtype* output, bool skip_im2col) {
   const Dtype* col_buff = input;
   if (!is_1x1_) {
     if (!skip_im2col) {

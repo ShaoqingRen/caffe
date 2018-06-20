@@ -458,6 +458,10 @@ message ConvolutionParameter {
     CUDNN = 2;
   }
   optional Engine engine = 15 [default = DEFAULT];
+  
+  optional uint32 filter_stride = 16 [default = 1]; // (equal in Y, X)
+  optional uint32 filter_stride_h = 17; // The filter stride height
+  optional uint32 filter_stride_w = 18; // The filter stride width
 }
 
 message DataParameter {
